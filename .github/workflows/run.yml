@@ -44,11 +44,9 @@ jobs:
           repository: Loyalsoldier/domain-list-custom
           path: custom
 
-      - name: Checkout v2fly/domain-list-community
-        uses: actions/checkout@v6
-        with:
-          repository: v2fly/domain-list-community
-          path: community
+      - name: Create community/data directory
+        run: |
+          mkdir -p community/data
 
       - name: Checkout cokebar/gfwlist2dnsmasq
         uses: actions/checkout@v6
@@ -75,7 +73,17 @@ jobs:
 
       - name: Get and add direct domains into temp-direct.txt file
         run: |
-          curl -sSL $CHINA_DOMAINS_URL | perl -ne '/^server=\/([^\/]+)\// && print "$1\n"' > temp-direct.txt
+          # 获取 Loyalsoldier/v2ray-rules-dat 的 china-list.txt 和 direct-tld-list.txt
+          curl -sSL "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/refs/heads/release/china-list.txt" > cn-from-upstream.txt
+          curl -sSL "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/refs/heads/release/direct-tld-list.txt" > tld-from-upstream.txt
+          
+          # 取两个文件的共同部分作为 cn 文件内容
+          comm -12 <(sort cn-from-upstream.txt) <(sort tld-from-upstream.txt) > ./community/data/cn
+          
+          # 同时保存到 temp-direct.txt 用于后续处理
+          cp ./community/data/cn temp-direct.txt
+          
+          # 添加自定义直连规则
           curl -sSL ${CUSTOM_DIRECT} | perl -ne '/^(domain):([^:]+)(\n$|:@.+)/ && print "$2\n"' >> temp-direct.txt
 
       - name: Get and add reject domains into temp-reject.txt file
@@ -157,8 +165,14 @@ jobs:
 
       - name: Write lists to data directory
         run: |
-          cat temp-cn.txt | sort --ignore-case -u | perl -ne '/^((?=^.{1,255})[a-zA-Z0-9][-_a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-_a-zA-Z0-9]{0,62})*)/ && print "$1\n"' > ./community/data/cn
+          # cn 文件已经由上游数据生成，这里只需要追加特殊规则
+          # 处理 temp-cn.txt 中的域名并追加到 cn 文件
+          cat temp-cn.txt | sort --ignore-case -u | perl -ne '/^((?=^.{1,255})[a-zA-Z0-9][-_a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-_a-zA-Z0-9]{0,62})*)/ && print "$1\n"' >> ./community/data/cn
+          
+          # 生成 direct-tld-list.txt
           cat temp-cn.txt | sort --ignore-case -u | perl -ne 'print if not /^((?=^.{3,255})[a-zA-Z0-9][-_a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-_a-zA-Z0-9]{0,62})+)/' > direct-tld-list.txt
+          
+          # 生成 category-ads-all 和 reject-tld-list.txt
           cat temp-category-ads-all.txt | sort --ignore-case -u | perl -ne '/^((?=^.{1,255})[a-zA-Z0-9][-_a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-_a-zA-Z0-9]{0,62})*)/ && print "$1\n"' > ./community/data/category-ads-all
           cat temp-category-ads-all.txt | sort --ignore-case -u | perl -ne 'print if not /^((?=^.{3,255})[a-zA-Z0-9][-_a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-_a-zA-Z0-9]{0,62})+)/' > reject-tld-list.txt
 
@@ -169,10 +183,11 @@ jobs:
           cp ./community/data/cn direct-list.txt
           cp ./community/data/category-ads-all reject-list.txt
 
-      - name: Create `china-list`、`google-cn`、`apple-cn`、`gfw`、`greatfire` lists
+      - name: Create `china-list` and other lists
         run: |
-          curl -sSL $CHINA_DOMAINS_URL | perl -ne '/^server=\/([^\/]+)\// && print "$1\n"' > ./community/data/china-list
-          curl -sSL $CHINA_DOMAINS_URL | perl -ne '/^server=\/([^\/]+)\// && print "$1\n"' > china-list.txt
+          # 使用 community/data/cn 作为 china-list
+          cp ./community/data/cn ./community/data/china-list
+          cp ./community/data/cn china-list.txt
           curl -sSL $WIN_SPY | grep "0.0.0.0" | awk '{print $2}' > ./community/data/win-spy
           curl -sSL $WIN_SPY | grep "0.0.0.0" | awk '{print $2}' > win-spy.txt
           curl -sSL $WIN_UPDATE | grep "0.0.0.0" | awk '{print $2}' > ./community/data/win-update
