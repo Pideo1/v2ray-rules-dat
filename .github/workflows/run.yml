@@ -38,10 +38,10 @@ jobs:
         with:
           ref: hidden
 
-      - name: Checkout Loyalsoldier/domain-list-custom
+      - name: Checkout Pideo1/domain-list-custom
         uses: actions/checkout@v6
         with:
-          repository: Loyalsoldier/domain-list-custom
+          repository: Pideo1/domain-list-custom
           path: custom
 
       - name: Create community/data directory
