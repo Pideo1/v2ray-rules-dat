@@ -48,6 +48,10 @@ jobs:
         run: |
           mkdir -p community/data
 
+      - name: Download private list from v2fly/domain-list-community
+        run: |
+          curl -sSL "https://raw.githubusercontent.com/v2fly/domain-list-community/refs/heads/master/data/private" > ./community/data/private
+
       - name: Checkout cokebar/gfwlist2dnsmasq
         uses: actions/checkout@v6
         with:
