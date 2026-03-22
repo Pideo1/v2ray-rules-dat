@@ -1,13 +1,15 @@
 name: Build V2Ray rules dat files
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 22 * * *"
-  push:
-    branches:
-      - master
-    paths-ignore:
-      - "**/README.md"
+    inputs:
+      ad_source:
+        description: '选择广告屏蔽规则来源'
+        required: true
+        type: choice
+        options:
+          - hagezi
+          - cat-team
+        default: 'cat-team'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,7 +19,14 @@ jobs:
           echo "RELEASE_NAME=Released on $(date +%Y%m%d%H%M)" >> $GITHUB_ENV
           echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
           echo "CHINA_DOMAINS_URL=https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf" >> $GITHUB_ENV
-          echo "HAGEZI_AD_ULTIMATE=https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/ultimate.txt" >> $GITHUB_ENV
+          echo "CUSTOM_AD_RULES_URL=https://raw.githubusercontent.com/Pideo1/bbbfg/refs/heads/main/myadrules.txt" >> $GITHUB_ENV
+          if [ "${{ github.event.inputs.ad_source }}" = "hagezi" ]; then
+            echo "AD_RULES_URL=https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/ultimate.txt" >> $GITHUB_ENV
+            echo "AD_RULES_TYPE=hagezi" >> $GITHUB_ENV
+          else
+            echo "AD_RULES_URL=https://raw.githubusercontent.com/Cats-Team/AdRules/main/dns.txt" >> $GITHUB_ENV
+            echo "AD_RULES_TYPE=cat-team" >> $GITHUB_ENV
+          fi
           echo "CUSTOM_DIRECT=https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/cn.txt" >> $GITHUB_ENV
           echo "WIN_SPY=https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt" >> $GITHUB_ENV
           echo "WIN_UPDATE=https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/update.txt" >> $GITHUB_ENV
@@ -71,7 +80,48 @@ jobs:
 
       - name: Get and add reject domains into temp-reject.txt file
         run: |
-          curl -sSL $HAGEZI_AD_ULTIMATE | perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$/ && print "$1\n"' | perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+          if [ "$AD_RULES_TYPE" = "hagezi" ]; then
+            # Hagezi 格式：||domain^
+            curl -sSL "$AD_RULES_URL" | perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$/ && print "$1\n"' | perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+          elif [ "$AD_RULES_TYPE" = "cat-team" ]; then
+            # Cat-Team AdRules 格式：支持 Adblock 语法
+            # 处理 ||domain^ 格式
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\^.*)?$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            # 处理 ||domain 格式（无 ^ 结尾）
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            # 处理 |http://domain 和 |https://domain 格式
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|(https?:\/\/)([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\/.*)?$/ && print "$2\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            # 合并个人维护的广告规则
+            curl -sSL "$CUSTOM_AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\^.*)?$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            curl -sSL "$CUSTOM_AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            curl -sSL "$CUSTOM_AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|(https?:\/\/)([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\/.*)?$/ && print "$2\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+          else
+            # 自定义规则格式：支持 Adblock 语法和正则
+            # 处理 ||domain^ 格式
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\^.*)?$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            # 处理 ||domain 格式（无 ^ 结尾）
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})$/ && print "$1\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+            # 处理 |http://domain 和 |https://domain 格式
+            curl -sSL "$AD_RULES_URL" | grep -v '^!' | grep -v '^#' | grep -v '^$' | \
+              perl -ne '/^\|(https?:\/\/)([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})(\/.*)?$/ && print "$2\n"' | \
+              perl -ne 'print if not /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/' >> temp-reject.txt
+          fi
 
       - name: Reserve `full`, `regexp` and `keyword` type of rules from custom lists to "reserve" files
         run: |
